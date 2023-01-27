@@ -4,74 +4,71 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
-	"github.com/aws/aws-sdk-go-v2/service/iam/types"
-	"github.com/aws/aws-sdk-go-v2/service/ses"
-	"github.com/aws/aws-sdk-go/aws/session"
+	iamTypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
+	"github.com/aws/aws-sdk-go-v2/service/sesv2"
+	"github.com/aws/aws-sdk-go-v2/service/sesv2/types"
 )
 
 var client *iam.Client
-var sesClient *ses.Client
+var sesClient *sesv2.Client
 
 func init() {
+	region := os.Getenv("AWS_REGION")
 	cfg, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		panic("configuration error, " + err.Error())
 	}
 	client = iam.NewFromConfig(cfg)
 
+	sescfg, createAmazonConfigurationError := config.LoadDefaultConfig(
+		context.Background(),
+		config.WithRegion(region),
+	)
+	if createAmazonConfigurationError != nil {
+		panic("configuration error in ses: " + createAmazonConfigurationError.Error())
+	}
+
+	sesClient = sesv2.NewFromConfig(sescfg)
+}
+
+func sendEmail() {
+	recipient := "test"
+	sender := "test"
+	charset := aws.String("UTF-8")
+	contactList := "Idon'tknow"
+	subject := "Oh boy... he's testing emails"
+	body := "Okay so hear me out, these dividends. They aren't 100% here but this will pay off for a long time"
+
+	// Prepare the email parameters
+	emailParams := &sesv2.SendEmailInput{
+		Content:                        &types.EmailContent{Simple: &types.Message{Subject: &types.Content{Data: &subject, Charset: charset}, Body: &types.Body{Text: &types.Content{Data: &body}}}},
+		ConfigurationSetName:           new(string),
+		Destination:                    &types.Destination{ToAddresses: []string{recipient}},
+		EmailTags:                      []types.MessageTag{},
+		FeedbackForwardingEmailAddress: new(string),
+		FeedbackForwardingEmailAddressIdentityArn: new(string),
+		FromEmailAddress:            aws.String(sender),
+		FromEmailAddressIdentityArn: new(string),
+		ListManagementOptions:       &types.ListManagementOptions{ContactListName: &contactList},
+		ReplyToAddresses:            []string{},
+	}
+	_, createMailError := sesClient.SendEmail(context.Background(), emailParams)
+	if createMailError != nil {
+		panic("Error sending the email: " + createMailError.Error())
+	}
 }
 
 func main() {
 	data := getData()
 	// fmt.Println(data)
 	processData(data)
-}
-
-func VerifyEmail(sess *session.Session, email string) error {
-	sesClient := ses.New(sess)
-	_, err := sesClient.VerifyEmailIdentity(&ses.VerifyEmailIdentityInput{
-		EmailAddress: aws.String(email),
-	})
-
-	return err
-}
-
-func sendEmail() {
-	// Define the email message
-	email := &ses.SendEmailInput{
-		Destination: &ses.Destination{
-			ToAddresses: []*string{
-				aws.String("recipient@example.com"),
-			},
-		},
-		Message: &ses.Message{
-			Body: &ses.Body{
-				Text: &ses.Content{
-					Data: aws.String("Hello, this is a test email"),
-				},
-			},
-			Subject: &ses.Content{
-				Data: aws.String("Test Email"),
-			},
-		},
-		Source: aws.String("sender@example.com"),
-	}
-
-	// Send the email
-	req := sesClient.SendEmailRequest(email)
-	result, err := req.Send(context.Background())
-	if err != nil {
-		fmt.Println("Error sending email:", err)
-		return
-	}
-
-	fmt.Println("Email sent! Message ID:", *result.MessageId)
-
+	sendEmail()
 }
 
 func processData(x string) {
@@ -171,7 +168,7 @@ func getData() string {
 		UN = *user.UserName
 		// fmt.Printf("%T\n", info.AccessKeyMetadata)
 
-		AK, CD := func(s []types.AccessKeyMetadata) ([]string, []time.Time) {
+		AK, CD := func(s []iamTypes.AccessKeyMetadata) ([]string, []time.Time) {
 			var AK []string
 			var CD []time.Time
 			for _, k := range s {
